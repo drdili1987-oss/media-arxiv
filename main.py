@@ -62,15 +62,19 @@ async def webhook(request: Request) -> dict:
 
 
 @app.get("/probe")
-def probe(key: str = "", url: str = "") -> dict:
+def probe(key: str = "", url: str = "", clients: str = "") -> dict:
     """Diagnostika: havolani serverda yuklab ko'radi (Telegram'ga yubormaydi)."""
     check_secret(key)
     import tempfile
     import time
     from pathlib import Path
 
+    from mediabot import downloader
     from mediabot.downloader import DownloadError, fetch
 
+    saved = downloader.YT_CLIENTS
+    if clients:
+        downloader.YT_CLIENTS = [c for c in clients.split(",") if c]
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="probe_") as td:
         try:
@@ -79,7 +83,9 @@ def probe(key: str = "", url: str = "") -> dict:
                    "items": [{"kind": m.kind, "name": m.path.name, "mb": round(m.path.stat().st_size / 2**20, 2)}
                              for m in r.items]}
         except DownloadError as e:
-            out = {"ok": False, "error": str(e)}
+            out = {"ok": False, "error": str(e), "raw": [r[-400:] for r in e.raw]}
+        finally:
+            downloader.YT_CLIENTS = saved
     out["seconds"] = round(time.monotonic() - started, 1)
     out["deno"] = bool(find_deno())
     return out

@@ -32,7 +32,15 @@ PLATFORMS = {
 
 
 class DownloadError(Exception):
-    """Foydalanuvchiga ko'rsatiladigan tushunarli xato."""
+    """Foydalanuvchiga ko'rsatiladigan tushunarli xato (raw — diagnostika uchun asl xatolar)."""
+
+    def __init__(self, message: str, raw: list[str] | None = None):
+        super().__init__(message)
+        self.raw = raw or []
+
+
+# YouTube player client'lari (vergul bilan), masalan "tv_samsung,web_safari". Bo'sh — yt-dlp standarti.
+YT_CLIENTS = [c for c in os.environ.get("YT_CLIENTS", "").replace(" ", "").split(",") if c]
 
 
 @dataclass
@@ -164,6 +172,8 @@ def _ytdlp(url: str, out: Path, height: int) -> str:
     }
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
+    if YT_CLIENTS:
+        opts["extractor_args"] = {"youtube": {"player_client": YT_CLIENTS}}
     is_youtube = platform_of(url) == "YouTube"
     deno_bin = ensure_deno() if is_youtube else find_deno()
     if deno_bin:
@@ -234,7 +244,7 @@ def fetch(url: str, workdir: Path, timeout_s: int = 150) -> Fetched:
         if method == "ytdlp" and not errors:
             break  # yt-dlp xatosiz, lekin fayl bermadi: max_filesize'dan katta — pastda 480p
     if not files and not (order[0] == "ytdlp" and not errors):
-        raise DownloadError(explain(errors, url))
+        raise DownloadError(explain(errors, url), errors)
 
     # 1080p video 50 MB'dan oshsa (yoki umuman yuklanmasa) — bir marta 480p bilan qayta urinamiz
     videos = [f for f in files if classify(f) == "video"]
