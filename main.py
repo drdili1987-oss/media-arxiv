@@ -16,6 +16,9 @@ from mediabot.tg import Telegram
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("mediabot.main")
+# httpx har so'rov URL'ini INFO'da yozadi — Telegram URL'ida bot tokeni bor, logga tushmasin.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
