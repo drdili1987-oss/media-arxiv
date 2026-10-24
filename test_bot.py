@@ -342,3 +342,28 @@ def test_explain_prefers_specific_error_over_unsupported():
             "[gallery-dl][error] Unsupported URL 'https://youtu.be/a'"]
     assert "aloqa" in explain(errs, "https://youtu.be/a")
     assert "qo'llab-quvvatlanmaydi" in explain(["Unsupported URL"], "https://a.b")
+
+
+def test_fetch_retries_480_when_1080_skipped_as_too_big(tmp_path, monkeypatch):
+    calls = []
+
+    def ytdlp(url, out, height):
+        calls.append(height)
+        out.mkdir(parents=True, exist_ok=True)
+        if height == 480:
+            (out / "01_a.mp4").write_bytes(b"x")
+        return "T"  # 1080 da max_filesize tufayli fayl yo'q, xato ham yo'q
+    monkeypatch.setattr(downloader, "_ytdlp", ytdlp)
+    r = downloader.fetch("https://youtu.be/a", tmp_path)
+    assert calls == [1080, 480] and [m.kind for m in r.items] == ["video"]
+
+
+def test_fetch_retries_480_when_1080_over_limit(tmp_path, monkeypatch):
+    def ytdlp(url, out, height):
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "01_a.mp4").write_bytes(b"x" * (100 if height == 1080 else 3))
+        return "T"
+    monkeypatch.setattr(downloader, "_ytdlp", ytdlp)
+    monkeypatch.setattr(downloader, "TG_LIMIT", 50)
+    r = downloader.fetch("https://youtu.be/a", tmp_path)
+    assert r.items[0].path.stat().st_size == 3

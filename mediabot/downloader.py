@@ -195,21 +195,23 @@ def fetch(url: str, workdir: Path, timeout_s: int = 150) -> Fetched:
             used = method
             break
 
-    if not files:
+        if method == "ytdlp" and not errors:
+            break  # yt-dlp xatosiz, lekin fayl bermadi: max_filesize'dan katta — pastda 480p
+    if not files and not (order[0] == "ytdlp" and not errors):
         raise DownloadError(explain(errors, url))
 
-    # 1080p videolar 50 MB'dan oshsa — bir marta 480p bilan qayta urinamiz
-    if used == "ytdlp":
-        big = [f for f in files if classify(f) == "video" and f.stat().st_size > TG_LIMIT]
-        if big and len(big) == len([f for f in files if classify(f) == "video"]):
-            out = workdir / "low"
-            try:
-                _ytdlp(url, out, 480)
-                low = collect(out)
-                if low:
-                    files = low
-            except Exception as e:  # noqa: BLE001
-                log.info("480p qayta urinish: %s", str(e)[:300])
+    # 1080p video 50 MB'dan oshsa (yoki umuman yuklanmasa) — bir marta 480p bilan qayta urinamiz
+    videos = [f for f in files if classify(f) == "video"]
+    if (used == "ytdlp" and videos and all(f.stat().st_size > TG_LIMIT for f in videos)) or not files:
+        out = workdir / "low"
+        try:
+            title = _ytdlp(url, out, 480) or title
+            if low := collect(out):
+                files = low
+        except Exception as e:  # noqa: BLE001
+            log.info("480p qayta urinish: %s", str(e)[:300])
+        if not files:
+            raise DownloadError("Video juda katta (50 MB dan ortiq): Telegram bot orqali yuborib bo'lmaydi.")
 
     result = Fetched(items=[], title=title)
     for f in files[:MAX_ITEMS]:
