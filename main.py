@@ -61,6 +61,30 @@ async def webhook(request: Request) -> dict:
     return {"ok": True}
 
 
+@app.get("/probe")
+def probe(key: str = "", url: str = "") -> dict:
+    """Diagnostika: havolani serverda yuklab ko'radi (Telegram'ga yubormaydi)."""
+    check_secret(key)
+    import tempfile
+    import time
+    from pathlib import Path
+
+    from mediabot.downloader import DownloadError, fetch
+
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix="probe_") as td:
+        try:
+            r = fetch(url, Path(td))
+            out = {"ok": True, "title": r.title, "notes": r.notes,
+                   "items": [{"kind": m.kind, "name": m.path.name, "mb": round(m.path.stat().st_size / 2**20, 2)}
+                             for m in r.items]}
+        except DownloadError as e:
+            out = {"ok": False, "error": str(e)}
+    out["seconds"] = round(time.monotonic() - started, 1)
+    out["deno"] = bool(find_deno())
+    return out
+
+
 @app.get("/setup")
 def setup(key: str = "") -> dict:
     """Bir martalik: webhook va buyruqlar menyusini o'rnatadi. /setup?key=<WEBHOOK_SECRET>"""

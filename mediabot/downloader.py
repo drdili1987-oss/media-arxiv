@@ -7,6 +7,8 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
@@ -80,12 +82,45 @@ def find_ffmpeg() -> str | None:
         return _executable(shutil.which("ffmpeg"))
 
 
+DENO_VERSION = "2.9.8"
+DENO_URL = (f"https://github.com/denoland/deno/releases/download/v{DENO_VERSION}/"
+            "deno-x86_64-unknown-linux-gnu.zip")
+DENO_TMP = Path("/tmp/bin/deno")
+_deno_lock = threading.Lock()
+
+
 def find_deno() -> str | None:
-    try:
-        import deno
-        return _executable(deno.find_deno_bin())
-    except Exception:
-        return _executable(shutil.which("deno"))
+    """YouTube JS sinovlari uchun deno. Serverless to'plamda bo'lmasa — None."""
+    for cand in (shutil.which("deno"), str(DENO_TMP)):
+        if found := _executable(cand):
+            return found
+    return None
+
+
+def ensure_deno() -> str | None:
+    """deno bo'lmasa, rasmiy relizdan /tmp ga bir marta yuklab oladi (~40 MB, bir necha soniya)."""
+    if found := find_deno():
+        return found
+    with _deno_lock:
+        if found := find_deno():
+            return found
+        try:
+            import httpx
+            DENO_TMP.parent.mkdir(parents=True, exist_ok=True)
+            zip_path = DENO_TMP.with_suffix(".zip")
+            with httpx.stream("GET", DENO_URL, follow_redirects=True, timeout=60) as r:
+                r.raise_for_status()
+                with zip_path.open("wb") as fh:
+                    for chunk in r.iter_bytes(1 << 20):
+                        fh.write(chunk)
+            with zipfile.ZipFile(zip_path) as z:
+                z.extract("deno", DENO_TMP.parent)
+            zip_path.unlink(missing_ok=True)
+            DENO_TMP.chmod(0o755)
+            return str(DENO_TMP)
+        except Exception as e:  # noqa: BLE001 — deno'siz ham yt-dlp ba'zi formatlarni oladi
+            log.warning("deno yuklanmadi: %s", e)
+            return None
 
 
 def classify(path: Path) -> str:
@@ -129,7 +164,8 @@ def _ytdlp(url: str, out: Path, height: int) -> str:
     }
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
-    deno_bin = find_deno()
+    is_youtube = platform_of(url) == "YouTube"
+    deno_bin = ensure_deno() if is_youtube else find_deno()
     if deno_bin:
         opts["js_runtimes"] = {"deno": {"path": deno_bin}}
     out.mkdir(parents=True, exist_ok=True)
